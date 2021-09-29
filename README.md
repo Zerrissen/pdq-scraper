@@ -14,6 +14,7 @@ If this does not work, please manually install the following modules:
 pip install requests
 pip install shodan
 ```
+Make sure to add your Shodan API key to the program! It's on line 9 if you're hella blind.
 
 ## Usage
 Pretty simple:
