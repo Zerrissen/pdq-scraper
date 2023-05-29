@@ -1,18 +1,7 @@
-function update() {
-    let doc = document.getElementById("time");
+const textarea = document.getElementById("results-area");
+const eventSource = new EventSource("/stream");
 
-    fetch("/scrape")
-        .then((response) => response.json())
-        .then(function (data) {
-            console.log(data["now"]);
-            doc.innerText = data["now"];
-        });
-}
-
-// update all 10000 ms
-(function () {
-    update();
-    setInterval(function () {
-        update();
-    }, 1000);
-})();
+eventSource.onmessage = function (event) {
+    const textarea = document.getElementById("results-area");
+    textarea.value += event.data + "\n";
+};
