@@ -1,1 +1,6 @@
 .venv
+tailwind.config.js
+node_modules/
+.prettierrc
+sample.json
+.env
