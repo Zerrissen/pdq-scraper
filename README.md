@@ -1,6 +1,6 @@
 # PDQ Scraper
 
-###### Scrapes a list of vulnerable PDQ carwasher control portals, and outputs them to JSON format. Not intended for illegal use. Developers are not held responsible for the use of this program.
+###### Scrapes a list of vulnerable PDQ carwasher control portals, and outputs them in plaintext on an HTML page. Not intended for illegal use. Developers are not held responsible for the use of this program.
 
 ## Installation
 
