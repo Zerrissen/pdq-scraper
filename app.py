@@ -15,14 +15,21 @@ REDIS_PORT = os.getenv('REDIS_PORT')
 REDIS_PASSWORD = os.getenv('REDIS_PASSWORD')
 
 app = Flask(__name__)
-r = redis.Redis(host=REDIS_URL, port=REDIS_PORT, password=REDIS_PASSWORD)
+db = redis.Redis(host=REDIS_URL, port=REDIS_PORT, password=REDIS_PASSWORD)
 query = 'WWW-Authenticate: Basic Realm="PDQ"'
-instanceResults = []
-api_reqs = []
 
+#------------------------------------------------
+# *                 call_api
+# ?  This function makes the call to Shodan to get
+# ?  query data, and publishes the results to the stream
+# @param apiKey string
+# @param user string
+# @param passw string
+# @param pageCount int
+# @return string     NOTE: Only returns on error
+#------------------------------------------------
 def call_api(apiKey, user, passw, pageCount):
     api = shodan.Shodan(apiKey)
-    global instanceResults
     # get all pages from pageCount
     page = 1
     while page <= int(pageCount):
@@ -34,10 +41,8 @@ def call_api(apiKey, user, passw, pageCount):
                     reqString = f"http://{user}:{passw}@{instance['ip_str']}:{instance['port']}"
                     res = requests.get(reqString)
                     sleep(0.5)
-                    if res.status_code == 200: # successful
-                        instanceResults.append(reqString)
-                        r.publish('updates', reqString)
-                        print(reqString)
+                    if res.status_code == 200: # successful, time to publish!
+                        db.publish('updates', reqString)
                 except requests.exceptions.ConnectionError as e:
                     print(f'Connection Error: {e}')
         except shodan.APIError as e:
@@ -45,6 +50,8 @@ def call_api(apiKey, user, passw, pageCount):
             return [e] # return as list due to html template looking for iterable
         page += 1
 
+
+# We only need one route :)
 @app.route('/', methods=['GET', 'POST'])
 @app.route('/index', methods=['GET', 'POST'])
 def index():
@@ -59,11 +66,17 @@ def index():
 
     return render_template('index.html')
 
-
+#------------------------------------------------
+# *                stream
+# ?  This route is used to provide access to our events
+# ?  event_stream is a generator function
+# ?  that yields our results for the client
+# @return Response
+#------------------------------------------------
 @app.route('/stream')
 def stream():
     def event_stream():
-        pubsub = r.pubsub()
+        pubsub = db.pubsub()
         pubsub.subscribe('updates')
         for message in pubsub.listen():
             if message['type'] == 'message':
